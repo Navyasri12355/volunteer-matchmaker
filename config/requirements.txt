@@ -1,0 +1,23 @@
+# Core NLP / ML
+numpy>=1.26
+scikit-learn>=1.4          # TF-IDF fallback embedder
+
+# Document ingestion (already in ingestor.py)
+PyMuPDF>=1.24
+python-docx>=1.1
+langchain-text-splitters>=0.2
+
+# OCR (optional, for scanned PDFs)
+pytesseract>=0.3.10
+Pillow>=10.0
+
+# Google Cloud – all covered by the $300 developer credit
+# Vertex AI (text-embedding-005)
+google-cloud-aiplatform>=1.50
+vertexai>=1.50
+
+# Cloud Translation API v2 (500k chars/month free tier)
+google-cloud-translate>=3.15
+
+# Utilities
+python-dateutil>=2.9
