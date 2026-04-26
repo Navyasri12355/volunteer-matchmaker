@@ -6,10 +6,10 @@ Public API for the NLP package.
 All external callers (API routers, event_service, etc.) should import
 from here.  Internal modules may import from each other directly.
 
-    from nlp import SeverityEngine, EventInput, SeverityResult
-    from nlp import CategoryConfig, CATEGORIES
-    from nlp import EventNLPExtractor, ExtractedEntities
-    from nlp import TrustScorer, SkillVerifier
+    from backend.nlp import SeverityEngine, EventInput, SeverityResult
+    from backend.nlp import CategoryConfig, CATEGORIES
+    from backend.nlp import EventNLPExtractor, ExtractedEntities
+    from backend.nlp import TrustScorer, SkillVerifier
 """
 
 from nlp.category_config import CategoryConfig, EventCategory, CATEGORIES
