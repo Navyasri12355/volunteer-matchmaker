@@ -20,20 +20,15 @@ NGO Manager / Volunteer
         ▼                                            │
   FastAPI (Cloud Run)  ◄───────────────────────────┘
         │
-        ├── ingestion/          Parse PDFs, DOCX, MD, TXT (+ OCR)
+        ├── backend/ingestion/  Parse PDFs, DOCX, MD, TXT (+ OCR)
         │        │
         │        ▼
-        ├── nlp/                Semantic scoring pipeline
+        ├── backend/nlp/        Semantic scoring pipeline
         │   ├── severity_engine.py     Vertex AI embeddings
         │   ├── event_nlp_extractor.py Cloud NL API entities
         │   ├── category_config.py     Weights & subtypes
         │   ├── trust_scorer.py        NGO trust / vol points
         │   └── skill_verifier.py      Cloud Vision cert OCR
-        │
-        ├── events/            Event lifecycle & map markers
-        ├── volunteers/        Registration, matching, assignment
-        ├── audit/             Post-event reviews & feedback loop
-        └── auth/              Firebase Auth roles & NGO onboarding
         │
         ▼
   Firestore  ←──── all structured data
@@ -44,11 +39,11 @@ NGO Manager / Volunteer
 
 ## Module responsibilities
 
-### `ingestion/`
+### `backend/ingestion/`
 
 Accepts uploads in PDF, DOCX, Markdown, and plain-text formats. Scanned PDFs without selectable text fall back to Tesseract OCR. Output is a flat list of `{content, metadata}` chunk dicts passed downstream to the NLP pipeline.
 
-### `nlp/`
+### `backend/nlp/`
 
 The core intelligence layer. See [scoring_logic.md](scoring_logic.md) for the full scoring formula. Five modules:
 
@@ -60,21 +55,9 @@ The core intelligence layer. See [scoring_logic.md](scoring_logic.md) for the fu
 | `trust_scorer.py` | NGO trust score (internal) + volunteer points (public) |
 | `skill_verifier.py` | Certificate OCR and expiry validation |
 
-### `events/`
+### Planned API/domain modules
 
-Manages the event lifecycle: creation (gated by NGO trust score), status tagging (`active` / `inactive` / `ongoing`), date scheduling, and the GeoJSON map marker feed consumed by the frontend.
-
-### `volunteers/`
-
-Profile registration (name, age, skills, certifications, location, preferences). Matching engine ranks volunteers against open events using skill match, geographic proximity, preferred categories, and reliability score. Assignment flow: severe events auto-assign verified volunteers; moderate/low events post an open call.
-
-### `audit/`
-
-Post-event data collection from both sides: NGO submits attendance count and goal-met flag; volunteers submit a 1–5 star review. Audit results feed back into NGO trust scores and volunteer reliability via `trust_feedback_loop.py`.
-
-### `auth/`
-
-Firebase Authentication handles login for three roles: `admin`, `ngo_manager`, `volunteer`. NGO manager registration includes declaring which event categories they are permitted to use — this becomes their `CategoryConfig` stored in Firestore.
+The architecture diagram includes future service layers such as `events`, `volunteers`, `audit`, and `auth`. In the current repository snapshot, the implemented Python packages are `backend/ingestion` and `backend/nlp`.
 
 ---
 
@@ -99,7 +82,7 @@ Firebase Authentication handles login for three roles: `admin`, `ngo_manager`, `
 
 ```
 1. NGO manager uploads documents
-2. ingestion/ parses and chunks all files
+2. backend/ingestion parses and chunks all files
 3. event_nlp_extractor extracts: population, locations, urgency signals
 4. severity_engine scores the event (NLP × category × area × recency × doc strength)
 5. event_validator checks NGO trust score ≥ 0.40 threshold

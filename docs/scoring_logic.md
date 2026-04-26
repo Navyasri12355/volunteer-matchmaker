@@ -6,7 +6,7 @@ This document explains the two scoring systems in the platform: **severity scori
 
 ## 1. Severity scoring
 
-Implemented in `nlp/severity_engine.py`.
+Implemented in `backend/nlp/severity_engine.py`.
 
 ### Formula
 
@@ -49,7 +49,7 @@ Long documents are split into 2 000-character chunks, each embedded separately, 
 
 ### Component 2 — Category weight
 
-Each of the six event categories carries a fixed base urgency weight reflecting domain knowledge. These are defined in `nlp/category_config.py` and referenced by the engine.
+Each of the six event categories carries a fixed base urgency weight reflecting domain knowledge. These are defined in `backend/nlp/category_config.py` and referenced by the engine.
 
 | Category | Base weight |
 |---|---|
@@ -141,7 +141,7 @@ The same event with a current document would score ~0.52 (MODERATE). This illust
 
 ## 2. NGO trust score
 
-Implemented in `nlp/trust_scorer.py`. **Internal only — visible to admins, never exposed in any public API.**
+Implemented in `backend/nlp/trust_scorer.py`. **Internal only — visible to admins, never exposed in any public API.**
 
 ### Formula
 
@@ -182,7 +182,7 @@ Admin-only. Not awarded automatically by score. Set via `admin_set_verified(True
 
 ## 3. Volunteer points
 
-Also in `nlp/trust_scorer.py`. **Public — shown on volunteer profiles.**
+Also in `backend/nlp/trust_scorer.py`. **Public — shown on volunteer profiles.**
 
 ### Points per event
 
@@ -206,7 +206,7 @@ Maximum possible per event: 48 points (all bonuses, critical event, perfect revi
 
 ## 4. Entity extraction confidence
 
-`nlp/event_nlp_extractor.py` notes the `extraction_method` field in `ExtractedEntities`:
+`backend/nlp/event_nlp_extractor.py` notes the `extraction_method` field in `ExtractedEntities`:
 
 - `"gcp_nl"` — Cloud Natural Language API was used; location entities are high-confidence.
 - `"regex"` — offline fallback; population numbers are reliable, location names are heuristic.

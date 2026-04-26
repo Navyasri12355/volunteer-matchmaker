@@ -60,46 +60,30 @@ npm run dev
 ```
 volunteer-matchmaker/
 ├── backend/
-|   ├── ingestion/                  # Document parsing (PDF, DOCX, MD, TXT, OCR)
-│   |   ├── __init__.py
-│   |   └── ingestor.py
+│   ├── config.py                   # Central settings
+│   ├── ingestion/                  # Document parsing + chunking + ingest->severity bridge
+│   │   ├── __init__.py
+│   │   ├── ingestor.py
+│   │   └── ingestor_to_severity.py
 │   |
-|   ├── nlp/                        # NLP and scoring pipeline
-|   │   ├── __init__.py
-|   │   ├── severity_engine.py      # Composite severity score (Vertex AI)
-|   │   ├── ingestor_to_severity.py # Ingestion → scoring bridge
-|   │   ├── category_config.py      # Category weights, subtypes, per-NGO config
-|   │   ├── event_nlp_extractor.py  # Entity extraction (Cloud NL API / regex)
-|   │   ├── trust_scorer.py         # NGO trust score + volunteer points
-|   │   └── skill_verifier.py       # Certificate OCR (Cloud Vision API)
-|   │
-│   ├── events/                 # Event lifecycle, map markers, scheduling
-│   ├── volunteers/             # Registration, matching, assignment
-│   ├── audit/                  # Post-event reviews, feedback loop
-│   ├── auth/                   # Firebase Auth, roles, NGO onboarding
-│   ├── api/                    # FastAPI routers (thin layer, no business logic)
-│   └── db/                     # Firestore client and Pydantic models
+│   └── nlp/                        # NLP and scoring pipeline
+│       ├── __init__.py
+│       ├── category_config.py      # Category weights, subtypes, per-NGO config
+│       ├── event_nlp_extractor.py  # Entity extraction (Cloud NL API / regex)
+│       ├── severity_engine.py      # Composite severity score (Vertex AI)
+│       ├── skill_verifier.py       # Certificate OCR (Cloud Vision API)
+│       └── trust_scorer.py         # NGO trust score + volunteer points
 │
-├── frontend/                   # React SPA (Leaflet map, event cards, portals)
-│
+├── config/
+│   └── requirements.txt
 ├── docs/
 │   ├── architecture.md         # System design and data flows
 │   ├── scoring_logic.md        # Severity and trust scoring formulas
 │   └── api_reference.md        # REST API endpoint reference
 │
-├── tests/
-│   ├── test_severity_engine.py
-│   ├── test_matching.py
-│   ├── test_trust.py
-│   ├── test_events.py
-│   └── test_ingestor.py
-│
-├── config.py                   # Central settings (pydantic-settings)
-├── main.py                     # FastAPI app entry point
-├── requirements.txt
+├── tests/                      # currently empty
 ├── pyproject.toml
-├── .env.example
-└── .gitignore
+└── README.md
 ```
 
 ---
