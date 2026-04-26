@@ -1,0 +1,142 @@
+# Architecture
+
+## Overview
+
+The NGO Volunteer Platform is a Google Solution Challenge 2026 project that connects NGOs managing community needs with volunteers who can address them. Documents submitted by NGOs are ingested, semantically analysed, and scored for severity. The resulting events are shown on an interactive map and matched to volunteers based on skill, location, and reliability.
+
+The backend is a Python FastAPI application deployed on Google Cloud Run. The frontend is a React single-page application. All persistent state lives in Firestore. Uploaded files (PDFs, certificates) go to Firebase Storage.
+
+---
+
+## System diagram
+
+```
+NGO Manager / Volunteer
+        │
+        ▼
+  React Frontend  ──────────────────────────────────┐
+        │                                            │
+        │ HTTPS                                      │ Firebase Auth (JWT)
+        ▼                                            │
+  FastAPI (Cloud Run)  ◄───────────────────────────┘
+        │
+        ├── ingestion/          Parse PDFs, DOCX, MD, TXT (+ OCR)
+        │        │
+        │        ▼
+        ├── nlp/                Semantic scoring pipeline
+        │   ├── severity_engine.py     Vertex AI embeddings
+        │   ├── event_nlp_extractor.py Cloud NL API entities
+        │   ├── category_config.py     Weights & subtypes
+        │   ├── trust_scorer.py        NGO trust / vol points
+        │   └── skill_verifier.py      Cloud Vision cert OCR
+        │
+        ├── events/            Event lifecycle & map markers
+        ├── volunteers/        Registration, matching, assignment
+        ├── audit/             Post-event reviews & feedback loop
+        └── auth/              Firebase Auth roles & NGO onboarding
+        │
+        ▼
+  Firestore  ←──── all structured data
+  Firebase Storage ←── uploaded docs & certificates
+```
+
+---
+
+## Module responsibilities
+
+### `ingestion/`
+
+Accepts uploads in PDF, DOCX, Markdown, and plain-text formats. Scanned PDFs without selectable text fall back to Tesseract OCR. Output is a flat list of `{content, metadata}` chunk dicts passed downstream to the NLP pipeline.
+
+### `nlp/`
+
+The core intelligence layer. See [scoring_logic.md](scoring_logic.md) for the full scoring formula. Five modules:
+
+| Module | Responsibility |
+|---|---|
+| `severity_engine.py` | Composite severity score in [0, 1] |
+| `event_nlp_extractor.py` | Entity extraction: population, location, urgency |
+| `category_config.py` | Category weights, subtypes, per-NGO allow-list |
+| `trust_scorer.py` | NGO trust score (internal) + volunteer points (public) |
+| `skill_verifier.py` | Certificate OCR and expiry validation |
+
+### `events/`
+
+Manages the event lifecycle: creation (gated by NGO trust score), status tagging (`active` / `inactive` / `ongoing`), date scheduling, and the GeoJSON map marker feed consumed by the frontend.
+
+### `volunteers/`
+
+Profile registration (name, age, skills, certifications, location, preferences). Matching engine ranks volunteers against open events using skill match, geographic proximity, preferred categories, and reliability score. Assignment flow: severe events auto-assign verified volunteers; moderate/low events post an open call.
+
+### `audit/`
+
+Post-event data collection from both sides: NGO submits attendance count and goal-met flag; volunteers submit a 1–5 star review. Audit results feed back into NGO trust scores and volunteer reliability via `trust_feedback_loop.py`.
+
+### `auth/`
+
+Firebase Authentication handles login for three roles: `admin`, `ngo_manager`, `volunteer`. NGO manager registration includes declaring which event categories they are permitted to use — this becomes their `CategoryConfig` stored in Firestore.
+
+---
+
+## Google Cloud services
+
+
+| Service | Used for |
+|---|---|
+| **Cloud Run** | Host FastAPI backend |
+| **Firestore** | All structured data |
+| **Firebase Auth** | User authentication |
+| **Firebase Storage** | Uploaded docs & certs |
+| **Vertex AI** `text-embedding-005` | Semantic severity embeddings |
+| **Cloud Natural Language API** | Entity extraction from docs |
+| **Cloud Vision API** | OCR on certificate images |
+| **Cloud Translation API** | Non-English doc translation |
+| **Google Maps / OpenStreetMap** | Event location map |
+
+---
+
+## Data flow: event creation
+
+```
+1. NGO manager uploads documents
+2. ingestion/ parses and chunks all files
+3. event_nlp_extractor extracts: population, locations, urgency signals
+4. severity_engine scores the event (NLP × category × area × recency × doc strength)
+5. event_validator checks NGO trust score ≥ 0.40 threshold
+6. Event is written to Firestore with severity band + GeoJSON marker
+7. Map layer updates; matching_engine queues volunteer assignment
+```
+
+## Data flow: post-event audit
+
+```
+1. NGO submits: attendance count, goal met (bool)
+2. Volunteers submit: 1–5 star review of the NGO
+3. audit_router aggregates both sides
+4. trust_feedback_loop.py:
+   - Updates NGOTrustScore via EMA (α=0.25)
+   - Awards volunteer points via VolunteerPointsLedger
+5. Admin sees updated internal NGO score; volunteer points are public
+```
+
+---
+
+## Offline / degraded mode
+
+Every Google Cloud API call has a fallback:
+
+- Vertex AI embeddings → TF-IDF cosine similarity (scikit-learn)
+- Cloud NL entity extraction → regex patterns for numbers and locations
+- Cloud Vision OCR → certificate queued for manual admin review
+- Cloud Translation → original text passed untranslated (with a warning)
+
+The `USE_VERTEX_EMBEDDINGS`, `USE_GCP_NL_API`, `USE_CLOUD_VISION`, and `USE_CLOUD_TRANSLATE` env vars (see `.env.example`) toggle each service independently, so the system remains functional in local dev without any GCP credentials.
+
+---
+
+## Security notes
+
+- NGO trust scores and composite scores are **never exposed via any public API endpoint**. Only the `admin` role can query them.
+- Volunteer reliability scores are used internally for matching but are not shown on public profiles; only total points are public.
+- Firebase Storage rules restrict certificate access to the owning volunteer and admins.
+- The event creation endpoint validates `CategoryConfig.is_category_allowed()` server-side so NGOs cannot submit events in categories they did not register for.
