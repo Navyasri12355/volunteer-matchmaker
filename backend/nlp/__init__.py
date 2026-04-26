@@ -12,17 +12,17 @@ from here.  Internal modules may import from each other directly.
     from backend.nlp import TrustScorer, SkillVerifier
 """
 
-from nlp.category_config import CategoryConfig, EventCategory, CATEGORIES
-from nlp.severity_engine import (
+from backend.nlp.category_config import CategoryConfig, EventCategory, CATEGORIES
+from backend.nlp.severity_engine import (
     SeverityEngine,
     EventInput,
     SeverityResult,
     SeverityBand,
     build_map_marker,
 )
-from nlp.event_nlp_extractor import EventNLPExtractor, ExtractedEntities
-from nlp.trust_scorer import TrustScorer, NGOTrustScore, VolunteerPointsLedger
-from nlp.skill_verifier import SkillVerifier, CertificateVerificationResult
+from backend.nlp.event_nlp_extractor import EventNLPExtractor, ExtractedEntities
+from backend.nlp.trust_scorer import TrustScorer, NGOTrustScore, VolunteerPointsLedger
+from backend.nlp.skill_verifier import SkillVerifier, CertificateVerificationResult
 
 __all__ = [
     # config

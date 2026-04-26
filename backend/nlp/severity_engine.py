@@ -30,7 +30,7 @@ The final score is in [0, 1] and maps to three bands:
 
 Usage
 ~~~~~
-    from severity_engine import SeverityEngine, EventInput
+    from backend.nlp.severity_engine import SeverityEngine, EventInput
 
     engine = SeverityEngine()          # authenticates via ADC or env vars
     result = engine.score(event)

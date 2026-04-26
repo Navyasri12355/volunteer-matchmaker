@@ -15,7 +15,7 @@ The function:
 
 Usage
 ~~~~~
-    from ingestor_to_severity import ingest_and_score
+    from backend.ingestion.ingestor_to_severity import ingest_and_score
 
     result, marker = ingest_and_score(
         filepaths=["report.pdf", "survey.docx"],
@@ -34,8 +34,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from ingestor import load_document, chunk_documents
-from severity_engine import EventInput, SeverityEngine, SeverityResult, build_map_marker
+from backend.ingestion.ingestor import load_document, chunk_documents
+from backend.nlp.severity_engine import EventInput, SeverityEngine, SeverityResult, build_map_marker
 
 
 def ingest_and_score(
