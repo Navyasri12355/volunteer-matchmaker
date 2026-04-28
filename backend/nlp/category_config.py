@@ -218,19 +218,3 @@ class CategoryConfig:
     def get_base_weight(self, category_key: str) -> float:
         cat = CATEGORIES.get(category_key)
         return cat.base_weight if cat else CUSTOM_CATEGORY_DEFAULT_WEIGHT
-
-    def to_firestore_dict(self) -> dict:
-        """Serialise for storage in the NGO's Firestore document."""
-        return {
-            "ngo_id": self.ngo_id,
-            "allowed_categories": self.allowed_categories,
-            "custom_subtypes": self.custom_subtypes,
-        }
-
-    @classmethod
-    def from_firestore_dict(cls, data: dict) -> "CategoryConfig":
-        return cls(
-            ngo_id=data["ngo_id"],
-            allowed_categories=data.get("allowed_categories", list(CATEGORIES.keys())),
-            custom_subtypes=data.get("custom_subtypes", {}),
-        )

@@ -4,13 +4,21 @@ Main FastAPI application entry point.
 Mounts routers for:
 - Map API (events for map view)
 - Volunteer API (registration, matching, assignments)
+- Database initialization and lifecycle management
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
 from backend.api import map_routes, volunteer_routes
 from backend.config import settings
+from backend.db import init_db, get_db
+
+logger = logging.getLogger(__name__)
+
+# Initialize database on startup
+init_db()
 
 # Create main app
 app = FastAPI(
@@ -37,6 +45,7 @@ async def health():
     """Health check endpoint."""
     return {
         "status": "ok",
+        "database": "connected",
         "gcp_available": settings.gcp_available,
         "offline_mode": settings.offline_mode,
     }
@@ -51,3 +60,4 @@ if __name__ == "__main__":
         port=settings.api_port,
         reload=settings.debug,
     )
+

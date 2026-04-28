@@ -1,10 +1,9 @@
 """
 config.py
 ---------
-Central configuration object for the ngo-platform backend.
+Central configuration object for the volunteer platform backend.
 
 All modules import from here rather than reading os.getenv() themselves.
-This makes it easy to swap values in tests without patching os.environ.
 
 Usage
 ~~~~~
@@ -35,11 +34,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ── Database ──────────────────────────────────────────────────────
+    database_url: str = "sqlite:///./volunteer.db"
+
     # ── Google Cloud ──────────────────────────────────────────────────
     gcp_project:  str = ""
     gcp_location: str = "us-central1"
     google_application_credentials: str = ""
-    firebase_storage_bucket: str = ""
 
     # ── NLP feature flags ─────────────────────────────────────────────
     use_vertex_embeddings:  bool = True

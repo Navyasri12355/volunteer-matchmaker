@@ -1,113 +1,86 @@
 """
-Firebase Admin SDK initialization and Firestore client utilities.
+Database layer using SQLAlchemy ORM with PostgreSQL.
 
-This module initializes the Firebase Admin SDK and provides helper functions
-for reading/writing documents to Firestore.
+This module provides:
+- SQLAlchemy engine and session factory
+- Database initialization
+- Session dependency for FastAPI
+- Utility functions for common operations
 
 Usage
 ~~~~~
-    from backend.db import get_firestore_client
+    from backend.db import SessionLocal, get_db, init_db
 
-    db = await get_firestore_client()
-    volunteer = await db.get("volunteers/vol-123/profile")
+    # In main.py
+    init_db()
+
+    # In API routes
+    @app.get("/items")
+    def read_items(db: Session = Depends(get_db)):
+        return db.query(Item).all()
 """
 
 from __future__ import annotations
 
 import logging
-import os
-from typing import Any, Optional
+from typing import Generator
 
-import firebase_admin
-from firebase_admin import credentials, firestore
-from google.cloud.firestore import Client as FirestoreClient
+from sqlalchemy import create_engine, Engine
+from sqlalchemy.orm import sessionmaker, Session
+
+from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
-_db_client: Optional[FirestoreClient] = None
+# ─── Database engine and session factory ──────────────────────────────────────
+
+_engine: Engine = None
+SessionLocal: sessionmaker = None
 
 
-def _init_firebase() -> None:
-    """Initialize Firebase Admin SDK if not already initialized."""
-    if firebase_admin._apps:
-        logger.debug("Firebase already initialized")
-        return
+def get_engine() -> Engine:
+    """Get or create SQLAlchemy engine."""
+    global _engine
+    if _engine is None:
+        database_url = settings.database_url or "sqlite:///./test.db"
+        logger.info(f"Connecting to database: {database_url[:50]}...")
 
+        if database_url.startswith("sqlite"):
+            _engine = create_engine(database_url, connect_args={"check_same_thread": False})
+        else:
+            # PostgreSQL
+            _engine = create_engine(database_url, pool_pre_ping=True, echo=False)
+
+        logger.info("Database engine created successfully")
+
+    return _engine
+
+
+def get_session_factory() -> sessionmaker:
+    """Get or create SQLAlchemy session factory."""
+    global SessionLocal
+    if SessionLocal is None:
+        engine = get_engine()
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return SessionLocal
+
+
+def init_db() -> None:
+    """Initialize database (create tables)."""
+    from backend.models.db_models import Base
+
+    engine = get_engine()
+    logger.info("Creating database tables...")
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database initialization complete")
+
+
+def get_db() -> Generator[Session, None, None]:
+    """FastAPI dependency: get database session."""
+    factory = get_session_factory()
+    db = factory()
     try:
-        # Try to use ADC (Application Default Credentials) first
-        cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred)
-        logger.info("Firebase initialized with Application Default Credentials")
-    except Exception as exc:
-        logger.warning("Firebase initialization failed (%s) – Firestore operations will fail", exc)
-        raise
+        yield db
+    finally:
+        db.close()
 
-
-async def get_firestore_client() -> FirestoreClient:
-    """Return the Firestore client (lazy-initialized, singleton)."""
-    global _db_client
-    if _db_client is None:
-        _init_firebase()
-        _db_client = firestore.client()
-    return _db_client
-
-
-# ─── Utility functions for common Firestore operations ───────────────────────
-
-async def get_document(path: str) -> Optional[dict[str, Any]]:
-    """Fetch a single document by path.
-
-    Args:
-        path: Full path like "volunteers/vol-123/profile" or "assignments/asn-456"
-
-    Returns:
-        Document data dict, or None if not found.
-    """
-    db = await get_firestore_client()
-    doc = db.document(path).get()
-    return doc.to_dict() if doc.exists else None
-
-
-async def save_document(path: str, data: dict[str, Any]) -> None:
-    """Save/update a document.
-
-    Args:
-        path: Full document path.
-        data: Dictionary to save (will overwrite).
-    """
-    db = await get_firestore_client()
-    db.document(path).set(data)
-
-
-async def update_document(path: str, updates: dict[str, Any]) -> None:
-    """Update specific fields in a document (non-overwriting).
-
-    Args:
-        path: Full document path.
-        updates: Dictionary of fields to update.
-    """
-    db = await get_firestore_client()
-    db.document(path).update(updates)
-
-
-async def delete_document(path: str) -> None:
-    """Delete a document."""
-    db = await get_firestore_client()
-    db.document(path).delete()
-
-
-async def query_documents(collection: str, **filters) -> list[dict[str, Any]]:
-    """Query a collection with optional filters.
-
-    Args:
-        collection: Collection name (e.g. "volunteers", "assignments").
-        **filters: Keyword filters (e.g., status="pending").
-
-    Returns:
-        List of document data dicts.
-    """
-    db = await get_firestore_client()
-    query = db.collection(collection)
-    for key, value in filters.items():
-        query = query.where(key, "==", value)
-    return [doc.to_dict() for doc in query.stream()]

@@ -4,7 +4,7 @@
 
 The NGO Volunteer Platform is a Google Solution Challenge 2026 project that connects NGOs managing community needs with volunteers who can address them. Documents submitted by NGOs are ingested, semantically analysed, and scored for severity. The resulting events are shown on an interactive map and matched to volunteers based on skill, location, and reliability.
 
-The backend is a Python FastAPI application deployed on Google Cloud Run. The frontend is a React single-page application. All persistent state lives in Firestore. Uploaded files (PDFs, certificates) go to Firebase Storage.
+The backend is a Python FastAPI application deployed on Google Cloud Run. The frontend is a React single-page application. All persistent state lives in PostgreSQL. Uploaded files (PDFs, certificates) go to Firebase Storage (or local filesystem in offline mode).
 
 ---
 
@@ -31,8 +31,8 @@ NGO Manager / Volunteer
         │   └── skill_verifier.py      Cloud Vision cert OCR
         │
         ▼
-  Firestore  ←──── all structured data
-  Firebase Storage ←── uploaded docs & certificates
+  PostgreSQL  ←──── all structured data
+  Firebase Storage ←── uploaded docs & certificates (optional)
 ```
 
 ---
@@ -55,21 +55,30 @@ The core intelligence layer. See [scoring_logic.md](scoring_logic.md) for the fu
 | `trust_scorer.py` | NGO trust score (internal) + volunteer points (public) |
 | `skill_verifier.py` | Certificate OCR and expiry validation |
 
+### `backend/models/`
+
+SQLAlchemy ORM models and helper classes:
+
+| Module | Responsibility |
+|---|---|
+| `db_models.py` | Core ORM models (Volunteer, Event, Assignment, Audit, NGO) |
+| `volunteer.py` | Helper methods for volunteer profile operations |
+| `assignment.py` | State machine methods for assignment lifecycle |
+
 ### Planned API/domain modules
 
-The architecture diagram includes future service layers such as `events`, `volunteers`, `audit`, and `auth`. In the current repository snapshot, the implemented Python packages are `backend/ingestion` and `backend/nlp`.
+The architecture includes future service layers such as `events`, `audit`, and `auth`. In the current repository snapshot, the implemented Python packages are `backend/ingestion` and `backend/nlp`.
 
 ---
 
 ## Google Cloud services
 
-
 | Service | Used for |
 |---|---|
 | **Cloud Run** | Host FastAPI backend |
-| **Firestore** | All structured data |
+| **PostgreSQL** | All structured data |
 | **Firebase Auth** | User authentication |
-| **Firebase Storage** | Uploaded docs & certs |
+| **Firebase Storage** | Uploaded docs & certs (optional) |
 | **Vertex AI** `text-embedding-005` | Semantic severity embeddings |
 | **Cloud Natural Language API** | Entity extraction from docs |
 | **Cloud Vision API** | OCR on certificate images |
@@ -86,7 +95,7 @@ The architecture diagram includes future service layers such as `events`, `volun
 3. event_nlp_extractor extracts: population, locations, urgency signals
 4. severity_engine scores the event (NLP × category × area × recency × doc strength)
 5. event_validator checks NGO trust score ≥ 0.40 threshold
-6. Event is written to Firestore with severity band + GeoJSON marker
+6. Event is written to PostgreSQL with severity band + GeoJSON marker
 7. Map layer updates; matching_engine queues volunteer assignment
 ```
 
@@ -97,8 +106,8 @@ The architecture diagram includes future service layers such as `events`, `volun
 2. Volunteers submit: 1–5 star review of the NGO
 3. audit_router aggregates both sides
 4. trust_feedback_loop.py:
-   - Updates NGOTrustScore via EMA (α=0.25)
-   - Awards volunteer points via VolunteerPointsLedger
+   - Updates NGOTrustScore via EMA (α=0.25) in PostgreSQL
+   - Awards volunteer points via VolunteerPointsLedger in PostgreSQL
 5. Admin sees updated internal NGO score; volunteer points are public
 ```
 

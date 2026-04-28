@@ -10,6 +10,7 @@ A platform that connects NGOs managing community needs with skilled volunteers. 
 
 - Python 3.11+
 - Node.js 20+ (frontend)
+- PostgreSQL 12+ (local or cloud instance)
 - A Google Cloud project with billing enabled (free $300 credit from the Google Developer Program is sufficient)
 - `gcloud` CLI authenticated: `gcloud auth application-default login`
 
@@ -24,13 +25,30 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env — set GCP_PROJECT, FIREBASE_STORAGE_BUCKET at minimum
+# Edit .env — set DATABASE_URL (PostgreSQL connection string) at minimum
+# For GCP features: set GCP_PROJECT, FIREBASE_STORAGE_BUCKET
+
+# Initialize database (creates tables from schema.sql via SQLAlchemy ORM)
+python -c "from backend.db import init_db; init_db()"
 
 # Run the API server
 uvicorn main:app --reload --port 8080
 ```
 
 The API will be available at `http://localhost:8080`. Interactive docs at `http://localhost:8080/docs`.
+
+#### PostgreSQL connection string examples
+
+```
+# Local development
+DATABASE_URL=postgresql://user:password@localhost:5432/volunteer_db
+
+# Cloud SQL (Google Cloud)
+DATABASE_URL=postgresql://user:password@1.2.3.4:5432/volunteer_db
+
+# With docker
+DATABASE_URL=postgresql://postgres:postgres@db:5432/volunteer_db
+```
 
 ### Offline / no-GCP mode
 
@@ -61,18 +79,31 @@ npm run dev
 volunteer-matchmaker/
 ├── backend/
 │   ├── config.py                   # Central settings
+│   ├── db.py                       # SQLAlchemy + PostgreSQL setup
 │   ├── ingestion/                  # Document parsing + chunking + ingest->severity bridge
 │   │   ├── __init__.py
 │   │   ├── ingestor.py
 │   │   └── ingestor_to_severity.py
-│   |
-│   └── nlp/                        # NLP and scoring pipeline
-│       ├── __init__.py
-│       ├── category_config.py      # Category weights, subtypes, per-NGO config
-│       ├── event_nlp_extractor.py  # Entity extraction (Cloud NL API / regex)
-│       ├── severity_engine.py      # Composite severity score (Vertex AI)
-│       ├── skill_verifier.py       # Certificate OCR (Cloud Vision API)
-│       └── trust_scorer.py         # NGO trust score + volunteer points
+│   │
+│   ├── models/                     # SQLAlchemy ORM models
+│   │   ├── db_models.py            # Core ORM models (Volunteer, Event, etc.)
+│   │   ├── volunteer.py            # Helper class for volunteer operations
+│   │   └── assignment.py           # Helper class for assignment state machine
+│   │
+│   ├── nlp/                        # NLP and scoring pipeline
+│   │   ├── __init__.py
+│   │   ├── category_config.py      # Category weights, subtypes, per-NGO config
+│   │   ├── event_nlp_extractor.py  # Entity extraction (Cloud NL API / regex)
+│   │   ├── severity_engine.py      # Composite severity score (Vertex AI)
+│   │   ├── skill_verifier.py       # Certificate OCR (Cloud Vision API)
+│   │   └── trust_scorer.py         # NGO trust score + volunteer points
+│   │
+│   ├── api/                        # FastAPI routes
+│   │   ├── map_routes.py           # Map endpoint for events
+│   │   └── volunteer_routes.py     # Volunteer registration, matching, assignments
+│   │
+│   ├── matching/                   # Volunteer matching algorithm
+│   │   └── matcher.py
 │
 ├── config/
 │   └── requirements.txt
@@ -81,8 +112,10 @@ volunteer-matchmaker/
 │   ├── scoring_logic.md        # Severity and trust scoring formulas
 │   └── api_reference.md        # REST API endpoint reference
 │
+├── schema.sql                  # PostgreSQL schema (applied via SQLAlchemy ORM)
 ├── tests/                      # currently empty
 ├── pyproject.toml
+├── .env.example                # Environment configuration template
 └── README.md
 ```
 
@@ -123,20 +156,26 @@ See [docs/scoring_logic.md](docs/scoring_logic.md) for the full formula with exa
 
 ---
 
+## Data storage
+
+| Component | Storage |
+|---|---|
+| Events, Volunteers, Assignments, Audits | PostgreSQL |
+| Uploaded documents and certificates | Firebase Storage (or local filesystem for offline mode) |
+| Embeddings cache | PostgreSQL (future) |
+
+---
+
 ## Google Cloud services used
 
 | Service | Purpose |
 |---|---|
 | Cloud Run | Backend hosting |
-| Firestore | All structured data |
-| Firebase Auth | Authentication (3 roles) |
-| Firebase Storage | Uploaded documents and certificates |
 | Vertex AI `text-embedding-005` | Semantic severity embeddings |
 | Cloud Natural Language API | Entity extraction from event docs |
 | Cloud Vision API | OCR on skill certificates |
 | Cloud Translation API | Non-English document translation |
-
-All services operate within the $300 Google Developer Program credit.
+| Firebase Storage | Uploaded documents and certificates (optional) |
 
 ---
 

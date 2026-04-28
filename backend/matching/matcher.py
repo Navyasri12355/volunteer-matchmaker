@@ -15,10 +15,12 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Tuple
 
-from backend.db import get_firestore_client, query_documents
+from sqlalchemy.orm import Session
+
+from backend.models.db_models import Volunteer, Assignment
 from backend.models.volunteer import VolunteerProfile
 from backend.nlp.category_config import CATEGORIES
-from backend.nlp.trust_scorer import VolunteerPointsLedger
+from backend.nlp.trust_scorer import VOL_RELIABILITY_THRESHOLD
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ def _location_distance_score(volunteer_location: str, event_location: str) -> fl
 # ─── Skill matching ──────────────────────────────────────────────────────────
 
 
-def _skill_match_score(volunteer_profile: VolunteerProfile, event_category: str) -> float:
+def _skill_match_score(volunteer: Volunteer, event_category: str) -> float:
     """
     Score based on volunteer's skills matching the event category.
 
@@ -62,10 +64,10 @@ def _skill_match_score(volunteer_profile: VolunteerProfile, event_category: str)
     - 0.5 if volunteer has some skills but not for this category (shows commitment)
     - 0.0 if volunteer has no skills at all
     """
-    verified_skills = volunteer_profile.get_verified_skills()
-
-    if not verified_skills:
+    if not volunteer.skills:
         return 0.0  # no skills
+
+    skills = volunteer.skills if isinstance(volunteer.skills, list) else []
 
     # Check if volunteer has skill for this specific category
     # Map event category → skill keys that match
@@ -80,35 +82,27 @@ def _skill_match_score(volunteer_profile: VolunteerProfile, event_category: str)
 
     matching_skills = category_skill_map.get(event_category, [])
 
-    if any(skill in verified_skills for skill in matching_skills):
+    if any(skill in skills for skill in matching_skills):
         return 1.0  # exact match for category
 
-    return 0.5  # has skills, but not for this category
+    return 0.5 if skills else 0.0  # has skills, but not for this category
 
 
 # ─── Reliability scoring ─────────────────────────────────────────────────────
 
 
-async def _reliability_multiplier(volunteer_id: str) -> float:
+def _reliability_multiplier(volunteer: Volunteer) -> float:
     """
     Look up volunteer's reliability score.
 
     1.0 if reliable (≥ 0.60), 0.5 if unreliable.
     New volunteers (no assignments) are optimistic at 1.0.
     """
-    try:
-        db = await get_firestore_client()
-        doc = db.document(f"volunteers/{volunteer_id}/points_ledger").get()
-        if not doc.exists:
-            return 1.0  # new volunteer, optimistic
+    # Reliability score is stored on the Volunteer ORM model
+    if not hasattr(volunteer, 'reliability_score') or volunteer.reliability_score is None:
+        return 1.0  # new volunteer, optimistic
 
-        data = doc.to_dict()
-        ledger = VolunteerPointsLedger.from_firestore_dict(data)
-
-        return 1.0 if ledger.is_reliable() else 0.5
-    except Exception as exc:
-        logger.warning("Failed to fetch reliability for %s: %s", volunteer_id, exc)
-        return 0.5  # default to unreliable if lookup fails
+    return 1.0 if volunteer.reliability_score >= VOL_RELIABILITY_THRESHOLD else 0.5
 
 
 # ─── Main ranking function ───────────────────────────────────────────────────
@@ -118,6 +112,7 @@ async def rank_volunteers_for_event(
     event_category: str,
     event_location: str,
     max_results: int = 10,
+    db: Session = None,
 ) -> List[Tuple[str, str, float]]:
     """
     Find and rank all volunteers for a given event.
@@ -130,6 +125,8 @@ async def rank_volunteers_for_event(
         Event location string (e.g., "Assam, India").
     max_results : int
         Return top N matches.
+    db : Session
+        SQLAlchemy database session.
 
     Returns
     -------
@@ -137,39 +134,31 @@ async def rank_volunteers_for_event(
         Sorted by match_score descending.
     """
     try:
-        db = await get_firestore_client()
+        if db is None:
+            logger.warning("No database session provided for matching")
+            return []
 
-        # Fetch all volunteer profiles
-        volunteers_ref = db.collection("volunteers")
-        profiles = []
+        # Fetch all volunteers
+        volunteers = db.query(Volunteer).all()
 
-        for doc in volunteers_ref.stream():
-            profile_data = doc.get("profile")
-            if profile_data:
-                try:
-                    profile = VolunteerProfile.from_firestore_dict(profile_data)
-                    profiles.append(profile)
-                except Exception as exc:
-                    logger.warning("Failed to load profile for %s: %s", doc.id, exc)
-
-        logger.info(f"Found {len(profiles)} volunteer profiles")
+        logger.info(f"Found {len(volunteers)} volunteers")
 
         # Compute match scores
         matches: List[Tuple[str, str, float]] = []
 
-        for profile in profiles:
+        for volunteer in volunteers:
             # Compute three factors
-            skill_score = _skill_match_score(profile, event_category)
-            distance_score = _location_distance_score(profile.location_name, event_location)
-            reliability_score = await _reliability_multiplier(profile.volunteer_id)
+            skill_score = _skill_match_score(volunteer, event_category)
+            distance_score = _location_distance_score(volunteer.preferred_location or "", event_location)
+            reliability_score = _reliability_multiplier(volunteer)
 
             # Composite score (product of all three)
             composite_score = skill_score * distance_score * reliability_score
 
-            matches.append((profile.volunteer_id, profile.name, composite_score))
+            matches.append((volunteer.volunteer_id, volunteer.name or "Unknown", composite_score))
 
             logger.debug(
-                f"Volunteer {profile.name}: skill={skill_score:.2f}, "
+                f"Volunteer {volunteer.name}: skill={skill_score:.2f}, "
                 f"distance={distance_score:.2f}, reliability={reliability_score:.2f}, "
                 f"composite={composite_score:.4f}"
             )

@@ -1,14 +1,13 @@
 """
-Assignment dataclass for tracking volunteer-to-event assignments.
+Assignment helper class for state machine logic on assignments.
 
 Manages the state machine: pending → accepted/rejected → (if accepted) attended/no_show
 
-Firestore path: assignments/{assignment_id}
+This helper works with the Assignment ORM model from backend.models.db_models
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Optional
@@ -24,29 +23,12 @@ class AssignmentStatus(str, Enum):
     NO_SHOW = "no_show"  # volunteer assigned but did not attend
 
 
-@dataclass
-class Assignment:
+class AssignmentHelper:
     """
-    Represents a single volunteer-to-event assignment.
+    Helper class for Assignment state machine logic.
 
-    Fields
-    ------
-    assignment_id : str
-        Unique identifier (e.g., "asn-xyz789").
-    volunteer_id : str
-        Volunteer being assigned.
-    event_id : str
-        Event being assigned.
-    status : AssignmentStatus
-        Current status in state machine.
-    offered_at : datetime
-        When the assignment was created/offered.
-    deadline_at : datetime
-        Deadline for volunteer to respond (typically offered_at + 24h).
-    responded_at : Optional[datetime]
-        When volunteer confirmed/rejected (None until response).
-    attended_at : Optional[datetime]
-        When event completion was recorded (None until attendance confirmed).
+    Use with the Assignment ORM model from backend.models.db_models.
+    This class provides state transition methods.
 
     State machine
     ~~~~~~~~~~~~~
@@ -54,88 +36,47 @@ class Assignment:
     accepted →  attended / no_show
     """
 
-    assignment_id: str
-    volunteer_id: str
-    event_id: str
-    status: AssignmentStatus = AssignmentStatus.PENDING
-    offered_at: datetime = None
-    deadline_at: datetime = None
-    responded_at: Optional[datetime] = None
-    attended_at: Optional[datetime] = None
-
-    def __post_init__(self):
-        """Set default timestamps if not provided."""
-        if self.offered_at is None:
-            self.offered_at = datetime.now(timezone.utc)
-        if self.deadline_at is None:
-            self.deadline_at = self.offered_at + timedelta(hours=24)
-
-    # ─── Firestore serialization ──────────────────────────────────────
-
-    def to_firestore_dict(self) -> dict:
-        """Serialize to Firestore-compatible dictionary."""
-        return {
-            "assignment_id": self.assignment_id,
-            "volunteer_id": self.volunteer_id,
-            "event_id": self.event_id,
-            "status": self.status.value,
-            "offered_at": self.offered_at,
-            "deadline_at": self.deadline_at,
-            "responded_at": self.responded_at,
-            "attended_at": self.attended_at,
-        }
-
-    @classmethod
-    def from_firestore_dict(cls, data: dict) -> Assignment:
-        """Deserialize from Firestore dictionary."""
-        return cls(
-            assignment_id=data["assignment_id"],
-            volunteer_id=data["volunteer_id"],
-            event_id=data["event_id"],
-            status=AssignmentStatus(data.get("status", "pending")),
-            offered_at=data.get("offered_at", datetime.now(timezone.utc)),
-            deadline_at=data.get("deadline_at", datetime.now(timezone.utc) + timedelta(hours=24)),
-            responded_at=data.get("responded_at"),
-            attended_at=data.get("attended_at"),
-        )
-
-    # ─── State machine methods ────────────────────────────────────────
-
-    def accept(self) -> None:
+    @staticmethod
+    def accept(assignment_orm) -> None:
         """Volunteer accepts the assignment."""
-        if self.status != AssignmentStatus.PENDING:
-            raise ValueError(f"Cannot accept from status {self.status}")
-        self.status = AssignmentStatus.ACCEPTED
-        self.responded_at = datetime.now(timezone.utc)
+        if assignment_orm.status != AssignmentStatus.PENDING.value:
+            raise ValueError(f"Cannot accept from status {assignment_orm.status}")
+        assignment_orm.status = AssignmentStatus.ACCEPTED.value
+        assignment_orm.responded_at = datetime.now(timezone.utc)
 
-    def reject(self) -> None:
+    @staticmethod
+    def reject(assignment_orm) -> None:
         """Volunteer rejects the assignment."""
-        if self.status != AssignmentStatus.PENDING:
-            raise ValueError(f"Cannot reject from status {self.status}")
-        self.status = AssignmentStatus.REJECTED
-        self.responded_at = datetime.now(timezone.utc)
+        if assignment_orm.status != AssignmentStatus.PENDING.value:
+            raise ValueError(f"Cannot reject from status {assignment_orm.status}")
+        assignment_orm.status = AssignmentStatus.REJECTED.value
+        assignment_orm.responded_at = datetime.now(timezone.utc)
 
-    def mark_attended(self) -> None:
+    @staticmethod
+    def mark_attended(assignment_orm) -> None:
         """Record that volunteer attended the event."""
-        if self.status != AssignmentStatus.ACCEPTED:
-            raise ValueError(f"Cannot mark attended from status {self.status}")
-        self.status = AssignmentStatus.ATTENDED
-        self.attended_at = datetime.now(timezone.utc)
+        if assignment_orm.status != AssignmentStatus.ACCEPTED.value:
+            raise ValueError(f"Cannot mark attended from status {assignment_orm.status}")
+        assignment_orm.status = AssignmentStatus.ATTENDED.value
+        assignment_orm.attended_at = datetime.now(timezone.utc)
 
-    def mark_no_show(self) -> None:
+    @staticmethod
+    def mark_no_show(assignment_orm) -> None:
         """Record that volunteer did not show up."""
-        if self.status != AssignmentStatus.ACCEPTED:
-            raise ValueError(f"Cannot mark no_show from status {self.status}")
-        self.status = AssignmentStatus.NO_SHOW
-        self.attended_at = datetime.now(timezone.utc)
+        if assignment_orm.status != AssignmentStatus.ACCEPTED.value:
+            raise ValueError(f"Cannot mark no_show from status {assignment_orm.status}")
+        assignment_orm.status = AssignmentStatus.NO_SHOW.value
+        assignment_orm.attended_at = datetime.now(timezone.utc)
 
-    def is_expired(self) -> bool:
+    @staticmethod
+    def is_expired(assignment_orm) -> bool:
         """Check if response deadline has passed."""
-        return datetime.now(timezone.utc) > self.deadline_at
+        return datetime.now(timezone.utc) > assignment_orm.deadline_at
 
-    def is_early_accept(self) -> bool:
+    @staticmethod
+    def is_early_accept(assignment_orm) -> bool:
         """Check if volunteer accepted within 24h of offering."""
-        if self.status != AssignmentStatus.ACCEPTED or not self.responded_at:
+        if assignment_orm.status != AssignmentStatus.ACCEPTED.value or not assignment_orm.responded_at:
             return False
-        elapsed = self.responded_at - self.offered_at
+        elapsed = assignment_orm.responded_at - assignment_orm.assigned_at
         return elapsed <= timedelta(hours=24)

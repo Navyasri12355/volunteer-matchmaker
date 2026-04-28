@@ -5,6 +5,8 @@ Base URL (local dev): `http://localhost:8080`
 
 All endpoints require a Firebase Auth JWT in the `Authorization: Bearer <token>` header unless marked **public**.
 
+> **Note:** Authentication uses Firebase Auth, while all application data (events, volunteers, assignments) is stored in PostgreSQL.
+
 Roles: `admin` · `ngo_manager` · `volunteer`
 
 ---
@@ -149,7 +151,7 @@ List all events. Supports filtering.  **Public.**
 | `tags` | string | Comma-separated: `active,ongoing` |
 | `lat`, `lng`, `radius_km` | float | Bounding circle filter |
 | `limit` | int | Default 50, max 200 |
-| `cursor` | string | Firestore pagination cursor |
+| `offset` | int | PostgreSQL offset for pagination |
 
 **Response `200`**
 ```json
@@ -172,7 +174,7 @@ List all events. Supports filtering.  **Public.**
       "ngo_verified": true
     }
   ],
-  "next_cursor": "..."
+  "total": 150
 }
 ```
 

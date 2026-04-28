@@ -24,10 +24,10 @@ Design decisions from spec
 - NGO gets a "Verified" tag from admin action, not from score alone.
 - Scores act as an *audit tool*, not a public leaderboard for NGOs.
 
-Firestore schema expected
-~~~~~~~~~~~~~~~~~~~~~~~~~
-  ngos/{ngo_id}/trust_meta  →  NGOTrustScore.to_firestore_dict()
-  volunteers/{vol_id}/points_ledger  →  VolunteerPointsLedger.to_firestore_dict()
+PostgreSQL storage
+~~~~~~~~~~~~~~~~~~
+NGO trust scores are stored on the NGO ORM model.
+Volunteer points ledgers are stored on the Volunteer ORM model.
 """
 
 from __future__ import annotations
@@ -191,7 +191,7 @@ class NGOTrustScore:
         self.last_updated    = datetime.now(timezone.utc)
 
     # ------------------------------------------------------------------
-    # Serialisation
+    # Internal helpers
     # ------------------------------------------------------------------
 
     def _recompute_composite(self) -> None:
@@ -202,38 +202,6 @@ class NGOTrustScore:
             + TRUST_W_ACTIVITY        * self.activity_score,
             4,
         )
-
-    def to_firestore_dict(self) -> dict:
-        return {
-            "ngo_id":                  self.ngo_id,
-            "avg_review_score":        self.avg_review_score,
-            "avg_goal_completion":     self.avg_goal_completion,
-            "avg_attendance_ratio":    self.avg_attendance_ratio,
-            "activity_score":          self.activity_score,
-            "composite_score":         self.composite_score,
-            "total_events_completed":  self.total_events_completed,
-            "total_events_created":    self.total_events_created,
-            "is_verified":             self.is_verified,
-            "is_suspended":            self.is_suspended,
-            "admin_note":              self.admin_note,
-            "last_updated":            self.last_updated,
-        }
-
-    @classmethod
-    def from_firestore_dict(cls, data: dict) -> "NGOTrustScore":
-        obj = cls(ngo_id=data["ngo_id"])
-        obj.avg_review_score       = data.get("avg_review_score",       0.50)
-        obj.avg_goal_completion    = data.get("avg_goal_completion",     0.50)
-        obj.avg_attendance_ratio   = data.get("avg_attendance_ratio",    0.50)
-        obj.activity_score         = data.get("activity_score",          0.00)
-        obj.composite_score        = data.get("composite_score",         0.50)
-        obj.total_events_completed = data.get("total_events_completed",  0)
-        obj.total_events_created   = data.get("total_events_created",    0)
-        obj.is_verified            = data.get("is_verified",             False)
-        obj.is_suspended           = data.get("is_suspended",            False)
-        obj.admin_note             = data.get("admin_note",              "")
-        obj.last_updated           = data.get("last_updated")
-        return obj
 
 
 # ---------------------------------------------------------------------------
@@ -335,125 +303,6 @@ class VolunteerPointsLedger:
 
     def is_reliable(self) -> bool:
         return self.reliability_score >= VOL_RELIABILITY_THRESHOLD
-
-    # ------------------------------------------------------------------
-    # Serialisation
-    # ------------------------------------------------------------------
-
-    def to_firestore_dict(self) -> dict:
-        return {
-            "volunteer_id":      self.volunteer_id,
-            "total_points":      self.total_points,
-            "reliability_score": self.reliability_score,
-            "events_assigned":   self.events_assigned,
-            "events_attended":   self.events_attended,
-            "events_accepted":   self.events_accepted,
-            "history": [
-                {
-                    "event_id":  e.event_id,
-                    "points":    e.points,
-                    "reason":    e.reason,
-                    "earned_at": e.earned_at,
-                }
-                for e in self.history[-50:]  # keep last 50 entries
-            ],
-        }
-
-    @classmethod
-    def from_firestore_dict(cls, data: dict) -> "VolunteerPointsLedger":
-        obj = cls(volunteer_id=data["volunteer_id"])
-        obj.total_points      = data.get("total_points",      0)
-        obj.reliability_score = data.get("reliability_score", 1.0)
-        obj.events_assigned   = data.get("events_assigned",   0)
-        obj.events_attended   = data.get("events_attended",   0)
-        obj.events_accepted   = data.get("events_accepted",   0)
-        obj.history = [
-            PointsEntry(
-                event_id  = e["event_id"],
-                points    = e["points"],
-                reason    = e["reason"],
-                earned_at = e.get("earned_at", datetime.now(timezone.utc)),
-            )
-            for e in data.get("history", [])
-        ]
-        return obj
-
-
-# ---------------------------------------------------------------------------
-# TrustScorer  (orchestrator – called by event_service and audit service)
-# ---------------------------------------------------------------------------
-
-class TrustScorer:
-    """
-    Thin orchestration layer.  Actual score logic lives in NGOTrustScore /
-    VolunteerPointsLedger.  This class handles the Firestore read/write cycle
-    so callers don't need to know the storage schema.
-
-    The db_client parameter accepts a firestore_client.FirestoreClient instance
-    (injected at runtime from main.py / dependency injection).
-    In unit tests, pass db_client=None and call score objects directly.
-    """
-
-    def __init__(self, db_client=None):
-        self._db = db_client
-
-    # ------------------------------------------------------------------
-    # NGO trust
-    # ------------------------------------------------------------------
-
-    async def get_ngo_trust(self, ngo_id: str) -> NGOTrustScore:
-        if self._db is None:
-            return NGOTrustScore(ngo_id=ngo_id)
-        data = await self._db.get(f"ngos/{ngo_id}/trust_meta")
-        if data:
-            return NGOTrustScore.from_firestore_dict(data)
-        return NGOTrustScore(ngo_id=ngo_id)
-
-    async def apply_audit_to_ngo(
-        self,
-        ngo_id: str,
-        star_rating: float,
-        goal_met: bool,
-        attendance_ratio: float,
-    ) -> NGOTrustScore:
-        trust = await self.get_ngo_trust(ngo_id)
-        trust.apply_audit(star_rating, goal_met, attendance_ratio)
-        if self._db:
-            await self._db.set(f"ngos/{ngo_id}/trust_meta", trust.to_firestore_dict())
-        return trust
-
-    # ------------------------------------------------------------------
-    # Volunteer points
-    # ------------------------------------------------------------------
-
-    async def get_volunteer_ledger(self, volunteer_id: str) -> VolunteerPointsLedger:
-        if self._db is None:
-            return VolunteerPointsLedger(volunteer_id=volunteer_id)
-        data = await self._db.get(f"volunteers/{volunteer_id}/points_ledger")
-        if data:
-            return VolunteerPointsLedger.from_firestore_dict(data)
-        return VolunteerPointsLedger(volunteer_id=volunteer_id)
-
-    async def award_event_points(
-        self,
-        volunteer_id: str,
-        event_id: str,
-        severity_band: str,
-        goal_met: bool,
-        skill_used: bool,
-        early_accept: bool,
-        ngo_star_rating: float,
-    ) -> int:
-        ledger = await self.get_volunteer_ledger(volunteer_id)
-        earned = ledger.record_attendance(
-            event_id, severity_band, goal_met, skill_used, early_accept, ngo_star_rating
-        )
-        if self._db:
-            await self._db.set(
-                f"volunteers/{volunteer_id}/points_ledger",
-                ledger.to_firestore_dict(),
-            )
-        return earned
 
 
 # ---------------------------------------------------------------------------

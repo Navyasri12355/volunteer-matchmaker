@@ -6,9 +6,6 @@ Exposes:
     POST /api/volunteers/match            → Find matches for an event
     POST /api/volunteers/assign           → Assign volunteer to event
     POST /api/volunteers/confirm-participation  → Volunteer accept/reject assignment
-
-Each endpoint is stateless and reads/writes from Firestore.
-Singleton initialization for DB client (lazy-loaded).
 """
 
 from __future__ import annotations
@@ -18,15 +15,15 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
+from sqlalchemy.orm import Session
 
 from backend.config import settings
-from backend.db import get_firestore_client, save_document, get_document, update_document
-from backend.matching import rank_volunteers_for_event
-from backend.models.assignment import Assignment, AssignmentStatus
-from backend.models.volunteer import VolunteerProfile
-from backend.nlp.trust_scorer import VolunteerPointsLedger
+from backend.db import get_db
+from backend.models.db_models import Volunteer, Assignment, NGO, Event
+from backend.matching.matcher import rank_volunteers_for_event
+from backend.models.assignment import AssignmentStatus, AssignmentHelper
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +35,7 @@ class VolunteerRegistration(BaseModel):
 
     name: str
     email: EmailStr
-    location_name: str
+    location_name: str = "Unknown"
     skills_interested: List[str] = []
 
 
@@ -48,7 +45,6 @@ class VolunteerResponse(BaseModel):
     volunteer_id: str
     name: str
     email: str
-    location_name: str
     created_at: str
 
 
@@ -126,39 +122,33 @@ async def _notify_volunteer(volunteer_id: str, event_id: str, assignment_id: str
 
 
 @router.post("/register", response_model=VolunteerResponse, summary="Register a new volunteer")
-async def register_volunteer(req: VolunteerRegistration):
+async def register_volunteer(req: VolunteerRegistration, db: Session = Depends(get_db)):
     """
     Register a new volunteer.
 
-    Creates a VolunteerProfile document and an empty VolunteerPointsLedger.
+    Creates a Volunteer record in PostgreSQL.
     """
     try:
-        db = await get_firestore_client()
-
         # Check if email already exists
-        existing = db.collection("volunteers").where("email", "==", req.email).stream()
-        if any(existing):
+        existing = db.query(Volunteer).filter(Volunteer.email == req.email).first()
+        if existing:
             raise HTTPException(status_code=400, detail="Email already registered")
 
         volunteer_id = f"vol-{uuid.uuid4().hex[:8]}"
         now = datetime.now(timezone.utc)
 
-        # Create profile
-        profile = VolunteerProfile(
+        # Create volunteer record
+        volunteer = Volunteer(
             volunteer_id=volunteer_id,
             name=req.name,
             email=req.email,
-            location_name=req.location_name,
-            profile_created_at=now,
-            last_updated=now,
+            preferred_location=req.location_name,
+            created_at=now,
         )
 
-        # Create empty points ledger
-        ledger = VolunteerPointsLedger(volunteer_id=volunteer_id)
-
-        # Save to Firestore
-        await save_document(f"volunteers/{volunteer_id}/profile", profile.to_firestore_dict())
-        await save_document(f"volunteers/{volunteer_id}/points_ledger", ledger.to_firestore_dict())
+        db.add(volunteer)
+        db.commit()
+        db.refresh(volunteer)
 
         logger.info(f"Registered new volunteer: {volunteer_id}")
 
@@ -166,19 +156,19 @@ async def register_volunteer(req: VolunteerRegistration):
             volunteer_id=volunteer_id,
             name=req.name,
             email=req.email,
-            location_name=req.location_name,
             created_at=now.isoformat(),
         )
 
     except HTTPException:
         raise
     except Exception as exc:
+        db.rollback()
         logger.exception("Volunteer registration failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/match", response_model=MatchedVolunteersResponse, summary="Find matched volunteers for an event")
-async def match_volunteers(req: MatchRequest):
+async def match_volunteers(req: MatchRequest, db: Session = Depends(get_db)):
     """
     Find ranked volunteers for a given event.
 
@@ -189,6 +179,7 @@ async def match_volunteers(req: MatchRequest):
             event_category=req.event_category,
             event_location=req.event_location,
             max_results=10,
+            db=db,
         )
 
         volunteers = [
@@ -206,7 +197,7 @@ async def match_volunteers(req: MatchRequest):
 
 
 @router.post("/assign", response_model=AssignmentResponse, summary="Assign a volunteer to an event")
-async def assign_volunteer(req: AssignmentRequest):
+async def assign_volunteer(req: AssignmentRequest, db: Session = Depends(get_db)):
     """
     Create an assignment (offer event to volunteer).
 
@@ -214,19 +205,19 @@ async def assign_volunteer(req: AssignmentRequest):
     Triggers notification (placeholder).
     """
     try:
-        db = await get_firestore_client()
-
         # Verify volunteer exists
-        vol_doc = await get_document(f"volunteers/{req.volunteer_id}/profile")
-        if not vol_doc:
+        volunteer = db.query(Volunteer).filter(Volunteer.volunteer_id == req.volunteer_id).first()
+        if not volunteer:
             raise HTTPException(status_code=400, detail=f"Volunteer {req.volunteer_id} not found")
 
-        # Check if already assigned
-        existing = db.collection("assignments").where(
-            "volunteer_id", "==", req.volunteer_id
-        ).where("event_id", "==", req.event_id).where("status", "==", "pending").stream()
+        # Check if already assigned (pending)
+        existing = db.query(Assignment).filter(
+            Assignment.volunteer_id == req.volunteer_id,
+            Assignment.event_id == req.event_id,
+            Assignment.status == AssignmentStatus.PENDING.value,
+        ).first()
 
-        if any(existing):
+        if existing:
             raise HTTPException(status_code=409, detail="Volunteer already has pending assignment for this event")
 
         # Create assignment
@@ -238,20 +229,14 @@ async def assign_volunteer(req: AssignmentRequest):
             assignment_id=assignment_id,
             volunteer_id=req.volunteer_id,
             event_id=req.event_id,
-            status=AssignmentStatus.PENDING,
-            offered_at=now,
+            status=AssignmentStatus.PENDING.value,
+            assigned_at=now,
             deadline_at=deadline,
         )
 
-        # Save to Firestore
-        await save_document(f"assignments/{assignment_id}", assignment.to_firestore_dict())
-
-        # Record assignment in volunteer's ledger
-        ledger_doc = await get_document(f"volunteers/{req.volunteer_id}/points_ledger")
-        if ledger_doc:
-            ledger = VolunteerPointsLedger.from_firestore_dict(ledger_doc)
-            ledger.record_assignment(accepted=False)  # don't count as accepted yet
-            await update_document(f"volunteers/{req.volunteer_id}/points_ledger", ledger.to_firestore_dict())
+        db.add(assignment)
+        db.commit()
+        db.refresh(assignment)
 
         # Notify volunteer (placeholder)
         await _notify_volunteer(req.volunteer_id, req.event_id, assignment_id)
@@ -269,6 +254,7 @@ async def assign_volunteer(req: AssignmentRequest):
     except HTTPException:
         raise
     except Exception as exc:
+        db.rollback()
         logger.exception("Assignment failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -276,44 +262,37 @@ async def assign_volunteer(req: AssignmentRequest):
 @router.post(
     "/confirm-participation", response_model=ConfirmationResponse, summary="Volunteer confirms or rejects assignment"
 )
-async def confirm_participation(req: ConfirmationRequest):
+async def confirm_participation(req: ConfirmationRequest, db: Session = Depends(get_db)):
     """
     Volunteer accepts or rejects an assignment.
 
-    Updates assignment status and volunteer's points ledger.
+    Updates assignment status in PostgreSQL.
     """
     try:
         # Get assignment
-        asn_doc = await get_document(f"assignments/{req.assignment_id}")
-        if not asn_doc:
+        assignment = db.query(Assignment).filter(Assignment.assignment_id == req.assignment_id).first()
+        if not assignment:
             raise HTTPException(status_code=400, detail=f"Assignment {req.assignment_id} not found")
 
-        assignment = Assignment.from_firestore_dict(asn_doc)
-
         # Check if already responded
-        if assignment.status != AssignmentStatus.PENDING:
+        if assignment.status != AssignmentStatus.PENDING.value:
             raise HTTPException(status_code=409, detail=f"Assignment already {assignment.status}")
 
         # Check deadline
-        if assignment.is_expired():
+        if datetime.now(timezone.utc) > assignment.deadline_at:
             raise HTTPException(status_code=400, detail="Assignment deadline has passed")
 
         # Update assignment
+        now = datetime.now(timezone.utc)
         if req.confirmed:
-            assignment.accept()
+            assignment.status = AssignmentStatus.ACCEPTED.value
         else:
-            assignment.reject()
+            assignment.status = AssignmentStatus.REJECTED.value
 
-        await update_document(f"assignments/{req.assignment_id}", assignment.to_firestore_dict())
+        assignment.responded_at = now
 
-        # Update volunteer ledger
-        ledger_doc = await get_document(f"volunteers/{assignment.volunteer_id}/points_ledger")
-        if ledger_doc:
-            ledger = VolunteerPointsLedger.from_firestore_dict(ledger_doc)
-            ledger.record_assignment(accepted=req.confirmed)
-            await update_document(
-                f"volunteers/{assignment.volunteer_id}/points_ledger", ledger.to_firestore_dict()
-            )
+        db.commit()
+        db.refresh(assignment)
 
         logger.info(
             f"Assignment {req.assignment_id}: Volunteer {assignment.volunteer_id} "
@@ -322,12 +301,13 @@ async def confirm_participation(req: ConfirmationRequest):
 
         return ConfirmationResponse(
             assignment_id=req.assignment_id,
-            status=assignment.status.value,
+            status=assignment.status,
             responded_at=assignment.responded_at.isoformat(),
         )
 
     except HTTPException:
         raise
     except Exception as exc:
+        db.rollback()
         logger.exception("Confirmation failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
