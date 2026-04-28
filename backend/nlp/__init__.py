@@ -9,7 +9,7 @@ from here.  Internal modules may import from each other directly.
     from backend.nlp import SeverityEngine, EventInput, SeverityResult
     from backend.nlp import CategoryConfig, CATEGORIES
     from backend.nlp import EventNLPExtractor, ExtractedEntities
-    from backend.nlp import TrustScorer, SkillVerifier
+    from backend.nlp import NGOTrustScore, VolunteerPointsLedger, SkillVerifier
 """
 
 from backend.nlp.category_config import CategoryConfig, EventCategory, CATEGORIES
@@ -21,7 +21,7 @@ from backend.nlp.severity_engine import (
     build_map_marker,
 )
 from backend.nlp.event_nlp_extractor import EventNLPExtractor, ExtractedEntities
-from backend.nlp.trust_scorer import TrustScorer, NGOTrustScore, VolunteerPointsLedger
+from backend.nlp.trust_scorer import NGOTrustScore, VolunteerPointsLedger
 from backend.nlp.skill_verifier import SkillVerifier, CertificateVerificationResult
 
 __all__ = [
@@ -39,7 +39,6 @@ __all__ = [
     "EventNLPExtractor",
     "ExtractedEntities",
     # trust
-    "TrustScorer",
     "NGOTrustScore",
     "VolunteerPointsLedger",
     # skills
