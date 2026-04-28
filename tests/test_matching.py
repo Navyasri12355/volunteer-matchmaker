@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from api.models.volunteer import Volunteer
+from api.services.matching_service import MatchingService
 from backend.nlp.trust_scorer import VOL_RELIABILITY_THRESHOLD, VolunteerPointsLedger
 
 
@@ -29,3 +31,21 @@ def test_matching_reliability_when_no_assignments_is_optimistic() -> None:
 	ledger = VolunteerPointsLedger(volunteer_id="vol-new")
 	assert ledger.reliability_score == 1.0
 	assert ledger.is_reliable() is True
+
+
+def test_matching_profile_score_rewards_skill_and_reliability() -> None:
+	volunteer = Volunteer(
+		volunteer_id="vol-fit",
+		firebase_uid="uid-1",
+		full_name="Test Volunteer",
+		skills=["first_aid"],
+		preferred_categories=["health"],
+		reliability_score=0.9,
+		total_points=80,
+		is_verified=True,
+	)
+
+	summary = MatchingService.evaluate_volunteer_profile(volunteer, skill_key="first_aid")
+
+	assert summary["skill_match"] is True
+	assert summary["match_score"] > 0.7

@@ -1,40 +1,118 @@
-# NGO Volunteer Platform
+# NGO Volunteer Platform - Complete System Architecture
 
-A platform that connects NGOs managing community needs with skilled volunteers. Documents uploaded by NGOs are semantically analysed and scored for severity; the resulting events are shown on an interactive map and matched to volunteers based on skill, location, and reliability.
+## Overview
 
----
+This repository contains the full NGO Volunteer Platform system as described in the final architecture:
 
-## Quick start
+- **Firebase Auth** → User identity
+- **Firebase Storage** → Document & certificate uploads
+- **FastAPI** → REST API orchestration
+- **PostgreSQL** → Persistent data layer
+- **backend/** → NLP intelligence (unchanged)
+
+## Project Structure
+
+```
+volunteer-matchmaker/
+├── api/                    # FastAPI application
+│   ├── main.py            # App entrypoint
+│   ├── deps.py            # Dependency injection (auth, DB)
+│   ├── core/              # Config, security, constants
+│   ├── models/            # SQLAlchemy models (PostgreSQL)
+│   ├── schemas/           # Pydantic request/response
+│   ├── routes/            # API endpoints
+│   ├── services/          # Business logic
+│   └── db/                # Database session, migrations
+│
+├── backend/               # NLP & ingestion (UNCHANGED)
+│   ├── ingestion/
+│   └── nlp/
+│
+├── frontend/              # Next.js React app
+│   ├── app/               # Pages (App Router)
+│   ├── components/        # UI components
+│   ├── lib/               # Firebase & API clients
+│   └── public/
+│
+├── infra/                 # Infrastructure
+│   ├── docker/            # Dockerfile & compose
+│   └── gcp/               # GCP setup guides
+│
+├── scripts/               # Database & demo data setup
+├── config/                # Dependencies (requirements.txt)
+├── .env.example           # Environment template
+└── README.md
+```
+
+## Quick Start
 
 ### Prerequisites
-
 - Python 3.11+
-- Node.js 20+ (frontend)
-- A Google Cloud project with billing enabled (free $300 credit from the Google Developer Program is sufficient)
-- `gcloud` CLI authenticated: `gcloud auth application-default login`
+- Node.js 20+
+- PostgreSQL 16
+- GCP project with billing (for NLP services)
 
-### Backend
+### 1. Backend Setup
 
 ```bash
-git clone https://github.com/Navyasri12355/volunteer-matchmaker.git
-cd volunteer-matchmaker
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\Activate.ps1 on Windows
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
+# Create .env file from template
 cp .env.example .env
-# Edit .env — set GCP_PROJECT, FIREBASE_STORAGE_BUCKET at minimum
+# Edit .env with your PostgreSQL and Firebase credentials
 
-# Run the API server
-uvicorn main:app --reload --port 8080
+# Initialize database
+python scripts/init_db.py
+
+# Seed demo data (optional)
+python scripts/seed_db.py
+
+# Run API server
+python api/main.py
+# Or: uvicorn api.main:app --reload --port 8080
 ```
 
 The API will be available at `http://localhost:8080`. Interactive docs at `http://localhost:8080/docs`.
 
-### Offline / no-GCP mode
+### 2. Frontend Setup
 
-Set these in `.env` to disable all cloud API calls and use local fallbacks:
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Create .env.local from Firebase config
+cp .env.example .env.local
+# Edit .env.local with Firebase credentials
+
+# Run development server
+npm run dev
+```
+
+Frontend will be available at `http://localhost:3000`.
+
+### 3. Docker Compose (All-in-One)
+
+```bash
+cd infra/docker
+
+# Build and run
+docker-compose up --build
+
+# Initialize database inside container
+docker exec volunteer-platform-api python scripts/init_db.py
+docker exec volunteer-platform-api python scripts/seed_db.py
+```
+
+## Offline / No-GCP Mode
+
+If you don't have GCP credentials, set in `.env`:
 
 ```
 USE_VERTEX_EMBEDDINGS=false
@@ -43,128 +121,126 @@ USE_CLOUD_VISION=false
 USE_CLOUD_TRANSLATE=false
 ```
 
-The severity engine falls back to TF-IDF, entity extraction uses regex, and certificate uploads are queued for manual review.
+The backend will fall back to:
+- TF-IDF embeddings (local)
+- Regex entity extraction
+- Manual certificate review queue
+- No translation
 
-### Frontend
+## Database Migrations (Alembic)
+
+```bash
+# Auto-generate migration from model changes
+alembic revision --autogenerate -m "description"
+
+# Apply migrations
+alembic upgrade head
+
+# Check migration status
+alembic current
+alembic history
+```
+
+## Testing
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=api --cov=backend
+
+# Run offline tests only (no GCP calls)
+pytest -m offline
+```
+
+## Deployment
+
+### Cloud Run (API)
+
+```bash
+# Build image
+gcloud builds submit --tag gcr.io/<PROJECT_ID>/volunteer-platform-api
+
+# Deploy to Cloud Run
+gcloud run deploy volunteer-platform-api \
+  --image gcr.io/<PROJECT_ID>/volunteer-platform-api \
+  --platform managed \
+  --region us-central1 \
+  --set-env-vars DATABASE_URL=<CLOUD_SQL_CONN_STRING>
+```
+
+### Vercel (Frontend)
 
 ```bash
 cd frontend
-npm install
-npm run dev
+
+# Install Vercel CLI
+npm install -g vercel
+
+# Deploy
+vercel
 ```
 
----
+## Architecture Decisions
 
-## Project structure
+1. **PostgreSQL over Firestore** — PostgreSQL is the source of truth for structured data. Firestore handles identity only.
+2. **FastAPI orchestration** — Single REST API entry point. Routes delegate to backend/ modules for intelligence.
+3. **Firebase for auth & storage** — Firebase Auth handles user identity securely. Firebase Storage for documents and certificates.
+4. **Next.js frontend** — Modern React framework with built-in SSR, optimized performance, and TypeScript support.
+5. **Pydantic models** — Request/response validation + type safety across API boundary.
+6. **SQLAlchemy ORM** — Type-safe DB layer, easy migrations, full Alembic support.
 
-```
-volunteer-matchmaker/
-├── backend/
-│   ├── config.py                   # Central settings
-│   ├── ingestion/                  # Document parsing + chunking + ingest->severity bridge
-│   │   ├── __init__.py
-│   │   ├── ingestor.py
-│   │   └── ingestor_to_severity.py
-│   |
-│   └── nlp/                        # NLP and scoring pipeline
-│       ├── __init__.py
-│       ├── category_config.py      # Category weights, subtypes, per-NGO config
-│       ├── event_nlp_extractor.py  # Entity extraction (Cloud NL API / regex)
-│       ├── severity_engine.py      # Composite severity score (Vertex AI)
-│       ├── skill_verifier.py       # Certificate OCR (Cloud Vision API)
-│       └── trust_scorer.py         # NGO trust score + volunteer points
-│
-├── config/
-│   └── requirements.txt
-├── docs/
-│   ├── architecture.md         # System design and data flows
-│   ├── scoring_logic.md        # Severity and trust scoring formulas
-│   └── api_reference.md        # REST API endpoint reference
-│
-├── tests/                      # currently empty
-├── pyproject.toml
-└── README.md
-```
+## Key APIs
 
----
+### Authentication
+- `POST /auth/register/ngo` — Register NGO manager
+- `POST /auth/register/volunteer` — Register volunteer
+- `POST /auth/login` — Get Firebase ID token
 
-## Event categories
+### Events
+- `POST /events` — Create event (NGO, requires trust score ≥ 0.40)
+- `GET /events` — List events (public, supports filtering)
+- `GET /events/{event_id}` — Event details
+- `PATCH /events/{event_id}` — Update event (NGO manager or admin)
 
-| Category | Base severity weight |
-|---|---|
-| Disaster Relief | 1.00 |
-| Water & Sanitation | 0.90 |
-| Food Security | 0.85 |
-| Education | 0.55 |
-| Environment | 0.50 |
-| Animal Welfare | 0.45 |
+### Volunteers
+- `GET /volunteer/me` — Current volunteer profile
+- `POST /volunteer/certificates` — Upload skill certificate
+- `GET /volunteer/{volunteer_id}` — Public profile
 
-Each NGO defines its allowed categories at registration. One custom subtype per category is permitted.
+### Assignments
+- `POST /assignments/{event_id}/apply` — Apply to event
+- `POST /assignments/{assignment_id}/confirm` — Confirm/decline assignment
 
----
+### Audit & Scoring
+- `POST /audit/{event_id}/ngo-feedback` — NGO submits post-event audit
+- `POST /audit/{assignment_id}/volunteer-review` — Volunteer reviews NGO
+- `POST /audit/{event_id}/award-points` — Admin awards points
 
-## Severity scoring
+See [docs/api_reference.md](docs/api_reference.md) for full endpoint documentation.
 
-Five-component composite score in [0, 1]:
+## Documentation
 
-```
-score = nlp_score × category_weight × doc_strength × area_scale × recency_mult
-```
+- [Architecture](docs/architecture.md) — System design and data flows
+- [Scoring Logic](docs/scoring_logic.md) — Severity and trust scoring formulas
+- [API Reference](docs/api_reference.md) — Endpoint details
 
-| Component | Source |
-|---|---|
-| NLP semantic score | Vertex AI `text-embedding-005` vs severity anchors |
-| Category weight | Domain-assigned urgency (see table above) |
-| Document strength | Content volume + quantitative evidence + file count |
-| Area scale | Log-scaled affected population or km² |
-| Recency decay | Exponential half-life of 180 days; floor at 0.15 |
+## TODO / Future Work
 
-See [docs/scoring_logic.md](docs/scoring_logic.md) for the full formula with examples.
-
----
-
-## Google Cloud services used
-
-| Service | Purpose |
-|---|---|
-| Cloud Run | Backend hosting |
-| Firestore | All structured data |
-| Firebase Auth | Authentication (3 roles) |
-| Firebase Storage | Uploaded documents and certificates |
-| Vertex AI `text-embedding-005` | Semantic severity embeddings |
-| Cloud Natural Language API | Entity extraction from event docs |
-| Cloud Vision API | OCR on skill certificates |
-| Cloud Translation API | Non-English document translation |
-
-All services operate within the $300 Google Developer Program credit.
-
----
-
-## Volunteer matching
-
-- **CRITICAL events** — registered volunteers with verified matching skills are auto-assigned. Confirmation required within 24h; unconfirmed assignments are reassigned automatically.
-- **MODERATE / LOW events** — open call; volunteers apply and NGO selects.
-
-Matching rank factors: skill match · geographic proximity · preferred category · volunteer reliability score.
-
----
-
-## Scoring and trust
-
-- **NGO trust score** — internal only, admin-visible. Gates event creation (score ≥ 0.40 required). Updated via EMA after each post-event audit.
-- **Volunteer points** — public, shown on profiles. Earned per event; multipliers for severity, skill use, early acceptance, and 5-star NGO review.
-- Scores are never published publicly for NGOs. The Verified tag is admin-granted, not automatic.
-
----
-
-## Docs
-
-- [Architecture](docs/architecture.md)
-- [Scoring logic](docs/scoring_logic.md)
-- [API reference](docs/api_reference.md)
-
----
+- [ ] Firebase token verification (currently stubbed)
+- [ ] Firebase Storage integration (certificates, documents)
+- [ ] Volunteer matching engine (skill, location, reliability ranking)
+- [ ] Admin dashboard (trust scores, audit logs)
+- [ ] Email notifications (event matched, confirmation reminders)
+- [ ] Map integration (Leaflet.js or Google Maps)
+- [ ] Real-time chat for NGO ↔ volunteer communication
+- [ ] Mobile app (React Native)
 
 ## Contributing
 
 PRs welcome — please open an issue first to discuss significant changes.
+
+## License
+
+MIT

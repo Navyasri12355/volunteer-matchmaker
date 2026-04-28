@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Sora', sans-serif;
+    background: #F5F3EE;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  .slide {
+    width: 1280px;
+    height: 720px;
+    background: #FAFAF8;
+    border: 1px solid #E2DDD6;
+    position: relative;
+    overflow: hidden;
+    padding: 28px 36px 22px;
+  }
+
+  /* Subtle grid background */
+  .slide::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(180,170,155,0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(180,170,155,0.12) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .header {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 18px;
+    position: relative;
+  }
+
+  .header h1 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #1A1714;
+  }
+
+  .header .sub {
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    color: #9E9488;
+    letter-spacing: 0.08em;
+  }
+
+  .header .pill {
+    margin-left: auto;
+    background: #1A1714;
+    color: #F5F3EE;
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    padding: 4px 10px;
+    border-radius: 2px;
+  }
+
+  /* ─── MAIN LAYOUT ─── */
+  .diagram {
+    display: grid;
+    grid-template-columns: 148px 1fr 148px;
+    grid-template-rows: 1fr;
+    gap: 14px;
+    height: calc(100% - 58px);
+  }
+
+  /* ─── SIDE PANELS ─── */
+  .side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .side-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 8.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #9E9488;
+    margin-bottom: 2px;
+  }
+
+  /* ─── ACTOR CARDS ─── */
+  .actor {
+    border: 1.5px solid;
+    border-radius: 6px;
+    padding: 9px 10px;
+    position: relative;
+    flex: 1;
+  }
+
+  .actor-ngo { border-color: #3B7DD8; background: #EEF4FD; }
+  .actor-vol { border-color: #2E9B6B; background: #EBF7F2; }
+  .actor-admin { border-color: #C2410C; background: #FEF0E8; }
+
+  .actor-title {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .actor-ngo .actor-title { color: #2563AA; }
+  .actor-vol .actor-title { color: #1F7A50; }
+  .actor-admin .actor-title { color: #9A2E05; }
+
+  .actor-steps { list-style: none; }
+  .actor-steps li {
+    font-size: 8px;
+    color: #4A4540;
+    padding: 2px 0;
+    border-bottom: 1px dashed rgba(0,0,0,0.08);
+    line-height: 1.4;
+  }
+  .actor-steps li:last-child { border-bottom: none; }
+
+  .actor-icon {
+    position: absolute;
+    top: 8px; right: 8px;
+    font-size: 14px;
+    opacity: 0.4;
+  }
+
+  /* ─── CENTER PIPELINE ─── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+  }
+
+  .pipe-row {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    flex: 1;
+  }
+
+  /* connector line running down center-left */
+  .pipeline::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 16px;
+    bottom: 16px;
+    width: 2px;
+    background: linear-gradient(to bottom, #3B7DD8, #2E9B6B);
+    opacity: 0.18;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+
+  /* ─── STEP NODES ─── */
+  .step {
+    flex: 1;
+    border: 1.5px solid #D6CFC5;
+    border-radius: 8px;
+    background: white;
+    padding: 8px 10px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .step::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 8px 8px 0 0;
+  }
+
+  .step-ingest::before   { background: #3B7DD8; }
+  .step-severity::before { background: #7C3AED; }
+  .step-event::before    { background: #DB7706; }
+  .step-match::before    { background: #059669; }
+  .step-exec::before     { background: #DC2626; }
+  .step-audit::before    { background: #0891B2; }
+
+  .step-num {
+    font-family: 'DM Mono', monospace;
+    font-size: 8px;
+    color: #B0A898;
+    margin-bottom: 3px;
+  }
+
+  .step-title {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: #1A1714;
+    margin-bottom: 5px;
+    letter-spacing: 0.01em;
+  }
+
+  .step-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+
+  .tag {
+    font-family: 'DM Mono', monospace;
+    font-size: 7.5px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    letter-spacing: 0.03em;
+  }
+
+  .tag-blue   { background: #EEF4FD; color: #2563AA; }
+  .tag-purple { background: #F3EFFE; color: #6D28D9; }
+  .tag-amber  { background: #FEF3C7; color: #92400E; }
+  .tag-green  { background: #D1FAE5; color: #065F46; }
+  .tag-red    { background: #FEE2E2; color: #991B1B; }
+  .tag-cyan   { background: #E0F2FE; color: #0C4A6E; }
+  .tag-gray   { background: #F3F0EC; color: #6B6560; }
+
+  /* arrow between rows */
+  .arrow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 10px;
+    gap: 6px;
+  }
+
+  .arrow-line {
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #C8C0B5, transparent);
+  }
+
+  .arrow-chevron {
+    font-size: 8px;
+    color: #A09890;
+    line-height: 1;
+    flex: 1;
+    text-align: center;
+  }
+
+  /* ─── TECH STACK BAR ─── */
+  .tech-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    background: #1A1714;
+    padding: 7px 36px;
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  .tech-section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 14px;
+    border-right: 1px solid #3A3530;
+  }
+  .tech-section:first-child { padding-left: 0; }
+  .tech-section:last-child { border-right: none; }
+
+  .tech-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 7.5px;
+    color: #6B6560;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    margin-right: 2px;
+  }
+
+  .tech-chip {
+    font-family: 'DM Mono', monospace;
+    font-size: 8px;
+    color: #D4CFC8;
+    background: #2C2825;
+    padding: 2px 6px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+
+  .tech-chip.hl { color: #7DD3A8; background: #0D2218; }
+
+  /* severity badge inside step */
+  .map-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 7.5px;
+    color: #7C3AED;
+    background: #F3EFFE;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .dot-r { background: #DC2626; }
+  .dot-y { background: #F59E0B; }
+  .dot-g { background: #10B981; }
+
+  /* match modes */
+  .match-modes {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .match-mode {
+    font-size: 7.5px;
+    padding: 3px 6px;
+    border-radius: 3px;
+    border-left: 2px solid;
+  }
+  .match-high { border-color: #DC2626; background: #FEF2F2; color: #991B1B; }
+  .match-low  { border-color: #10B981; background: #F0FDF4; color: #065F46; }
+
+  .step-inner-row {
+    display: flex;
+    gap: 5px;
+    flex: 1;
+  }
+</style>
+</head>
+<body>
+<div class="slide">
+
+  <div class="header">
+    <h1>System Architecture</h1>
+    <span class="sub">NGO–Volunteer Coordination Platform · End-to-End Flow</span>
+    <span class="pill">LIGHT / MVP</span>
+  </div>
+
+  <div class="diagram">
+
+    <!-- LEFT: NGO Actor -->
+    <div class="side-panel">
+      <div class="side-label">Actors</div>
+
+      <div class="actor actor-ngo">
+        <span class="actor-icon">🏢</span>
+        <div class="actor-title">NGO</div>
+        <ul class="actor-steps">
+          <li>Register + identity check</li>
+          <li>Gets "Verified NGO" tag</li>
+          <li>Internal trust score</li>
+          <li>Define event categories</li>
+          <li>Upload evidence docs</li>
+          <li>Create + manage events</li>
+          <li>Review volunteers</li>
+        </ul>
+      </div>
+
+      <div class="actor actor-admin">
+        <span class="actor-icon">🛡️</span>
+        <div class="actor-title">Admin</div>
+        <ul class="actor-steps">
+          <li>Remove / suspend NGOs</li>
+          <li>Override trust scores</li>
+          <li>Flag suspicious activity</li>
+          <li>Silent oversight layer</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- CENTER: Pipeline -->
+    <div class="pipeline">
+
+      <!-- Row 1: Ingest + Severity -->
+      <div class="pipe-row">
+        <div class="step step-ingest">
+          <div class="step-num">01</div>
+          <div class="step-title">Data Ingestion</div>
+          <div class="step-tags">
+            <span class="tag tag-blue">Tesseract OCR</span>
+            <span class="tag tag-blue">spaCy NLP</span>
+            <span class="tag tag-gray">PDF / Scan / Report</span>
+          </div>
+          <div class="step-tags" style="margin-top:4px">
+            <span class="tag tag-gray">→ issue type</span>
+            <span class="tag tag-gray">→ location</span>
+            <span class="tag tag-gray">→ area size</span>
+            <span class="tag tag-gray">→ timestamps</span>
+          </div>
+        </div>
+
+        <div class="step step-severity">
+          <div class="step-num">02</div>
+          <div class="step-title">Severity Assessment</div>
+          <div class="step-tags">
+            <span class="tag tag-purple">Category weight</span>
+            <span class="tag tag-purple">Recency</span>
+            <span class="tag tag-purple">NLP signals</span>
+          </div>
+          <div class="map-badge">
+            <span class="dot dot-r"></span>
+            <span class="dot dot-y"></span>
+            <span class="dot dot-g"></span>
+            OpenStreetMap + Leaflet heatmap
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-row">
+        <div class="arrow-chevron">↓</div>
+        <div class="arrow-chevron">↓</div>
+      </div>
+
+      <!-- Row 2: Event + Match -->
+      <div class="pipe-row">
+        <div class="step step-event">
+          <div class="step-num">03</div>
+          <div class="step-title">Event Creation</div>
+          <div class="step-tags">
+            <span class="tag tag-amber">Trust threshold check</span>
+            <span class="tag tag-amber">Data sufficiency gate</span>
+          </div>
+          <div class="step-tags" style="margin-top:4px">
+            <span class="tag tag-gray">active</span>
+            <span class="tag tag-gray">inactive</span>
+            <span class="tag tag-gray">ongoing</span>
+          </div>
+        </div>
+
+        <div class="step step-match">
+          <div class="step-num">04</div>
+          <div class="step-title">Matching Engine</div>
+          <div class="match-modes">
+            <div class="match-mode match-high">⚡ High severity → Auto-assign (skill + distance + reliability)</div>
+            <div class="match-mode match-low">📢 Mod/Low → Open call → Volunteer applies</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-row">
+        <div class="arrow-chevron">↓</div>
+        <div class="arrow-chevron">↓</div>
+      </div>
+
+      <!-- Row 3: Execution + Audit -->
+      <div class="pipe-row">
+        <div class="step step-exec">
+          <div class="step-num">05</div>
+          <div class="step-title">Execution</div>
+          <div class="step-tags">
+            <span class="tag tag-red">NGO coordinates</span>
+            <span class="tag tag-red">Attendance tracked</span>
+            <span class="tag tag-red">Progress logged</span>
+          </div>
+          <div class="step-tags" style="margin-top:4px">
+            <span class="tag tag-gray">Socket.IO live updates</span>
+          </div>
+        </div>
+
+        <div class="step step-audit">
+          <div class="step-num">06</div>
+          <div class="step-title">Audit + Feedback Loop</div>
+          <div class="step-tags">
+            <span class="tag tag-cyan">NGO ↔ Volunteer reviews</span>
+            <span class="tag tag-cyan">Success status</span>
+          </div>
+          <div class="step-tags" style="margin-top:4px">
+            <span class="tag tag-gray">NGO trust score ↑↓</span>
+            <span class="tag tag-gray">Volunteer reliability ↑↓</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /pipeline -->
+
+    <!-- RIGHT: Volunteer Actor -->
+    <div class="side-panel">
+      <div class="side-label">&nbsp;</div>
+
+      <div class="actor actor-vol">
+        <span class="actor-icon">🙋</span>
+        <div class="actor-title">Volunteer</div>
+        <ul class="actor-steps">
+          <li>Register with skills + certs</li>
+          <li>Set location + travel range</li>
+          <li>Build reliability score</li>
+          <li>Receive priority assignment</li>
+          <li>Or apply via open call</li>
+          <li>Confirm participation</li>
+          <li>Review NGO post-event</li>
+        </ul>
+      </div>
+
+      <!-- Storage / Auth -->
+      <div class="actor" style="border-color:#6B6560; background:#F5F3EE; flex:0;">
+        <div class="actor-title" style="color:#3A3530; font-size:8.5px;">Auth + Storage</div>
+        <ul class="actor-steps">
+          <li>Firebase Auth (login)</li>
+          <li>Firebase Storage (docs)</li>
+          <li>Cloud SQL / PostgreSQL</li>
+        </ul>
+      </div>
+    </div>
+
+  </div><!-- /diagram -->
+
+  <!-- TECH BAR -->
+  <div class="tech-bar">
+    <div class="tech-section">
+      <span class="tech-label">Backend</span>
+      <span class="tech-chip hl">Flask</span>
+      <span class="tech-chip">SQLAlchemy</span>
+    </div>
+    <div class="tech-section">
+      <span class="tech-label">DB</span>
+      <span class="tech-chip hl">PostgreSQL</span>
+      <span class="tech-chip">Cloud SQL</span>
+    </div>
+    <div class="tech-section">
+      <span class="tech-label">NLP</span>
+      <span class="tech-chip hl">spaCy</span>
+      <span class="tech-chip">Tesseract</span>
+      <span class="tech-chip">LangChain*</span>
+    </div>
+    <div class="tech-section">
+      <span class="tech-label">Maps</span>
+      <span class="tech-chip hl">Leaflet</span>
+      <span class="tech-chip">OpenStreetMap</span>
+    </div>
+    <div class="tech-section">
+      <span class="tech-label">Frontend</span>
+      <span class="tech-chip hl">HTML + JS</span>
+      <span class="tech-chip">Chart.js</span>
+      <span class="tech-chip">Socket.IO</span>
+    </div>
+    <div class="tech-section">
+      <span class="tech-label">Deploy</span>
+      <span class="tech-chip hl">GCP</span>
+      <span class="tech-chip">Cloud Run</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

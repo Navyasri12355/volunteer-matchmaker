@@ -17,7 +17,7 @@ from typing import List, Dict, Any
 
 import fitz  # PyMuPDF
 import docx
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Optional OCR dependencies – gracefully degrade if not installed
 try:

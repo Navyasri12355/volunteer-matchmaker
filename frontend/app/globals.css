@@ -1,0 +1,69 @@
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #D8E9A8;
+    --foreground: #191A19;
+    --primary: #1E5128;
+    --primary-foreground: #D8E9A8;
+    --secondary: #4E9F3D;
+    --secondary-foreground: #191A19;
+    --surface: #4E9F3D;
+    --card: #D8E9A8;
+    --card-foreground: #191A19;
+    --popover: #D8E9A8;
+    --popover-foreground: #191A19;
+    --muted: #4E9F3D;
+    --muted-foreground: #191A19;
+    --accent: #4E9F3D;
+    --accent-foreground: #191A19;
+    --destructive: #1E5128;
+    --destructive-foreground: #D8E9A8;
+    --border: #4E9F3D;
+    --input: #4E9F3D;
+    --ring: #1E5128;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: #191A19;
+    --foreground: #D8E9A8;
+    --primary: #4E9F3D;
+    --primary-foreground: #191A19;
+    --secondary: #1E5128;
+    --secondary-foreground: #D8E9A8;
+    --surface: #1E5128;
+    --card: #191A19;
+    --card-foreground: #D8E9A8;
+    --popover: #191A19;
+    --popover-foreground: #D8E9A8;
+    --muted: #1E5128;
+    --muted-foreground: #D8E9A8;
+    --accent: #1E5128;
+    --accent-foreground: #D8E9A8;
+    --destructive: #4E9F3D;
+    --destructive-foreground: #191A19;
+    --border: #1E5128;
+    --input: #1E5128;
+    --ring: #4E9F3D;
+  }
+  * {
+    @apply border-gray-300 outline-none;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+body {
+  @apply bg-background text-foreground transition-colors duration-300;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu',
+    'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+}
